@@ -68,19 +68,17 @@ def fetch_postos_for_fuel(fuel_id: int) -> list[dict]:
 
 
 def row_from_entry(entry: dict) -> dict:
-    """Map an API JSON entry to the CSV row dict.
-    Fields match exactly: Id, Nome, TipoPosto, Municipio, Preco, Marca,
-    Combustivel, DataAtualizacao, Distrito, Morada, Localidade, CodPostal,
-    Latitude, Longitude, Quantidade
-    """
+    date_raw = entry.get("DataAtualizacao", "")
+    date_formatted = date_raw.replace(" ", "T") if date_raw else ""
+    
     return {
         "Nome":            entry.get("Nome", ""),
         "TipoPosto":       entry.get("TipoPosto", ""),
         "Municipio":       entry.get("Municipio", ""),
-        "Preco":           entry.get("Preco", ""),  # Already in '1,599 €' format
+        "Preco":           entry.get("Preco", ""),
         "Marca":           entry.get("Marca", ""),
         "Combustivel":     entry.get("Combustivel", ""),
-        "DataAtualizacao": entry.get("DataAtualizacao", ""),
+        "DataAtualizacao": date_formatted,
         "Distrito":        entry.get("Distrito", ""),
         "Morada":          entry.get("Morada", ""),
         "Localidade":      entry.get("Localidade", ""),
@@ -88,7 +86,6 @@ def row_from_entry(entry: dict) -> dict:
         "Latitude":        entry.get("Latitude", ""),
         "Longitude":       entry.get("Longitude", ""),
     }
-
 
 def main():
     print("A carregar postos por combustível...")

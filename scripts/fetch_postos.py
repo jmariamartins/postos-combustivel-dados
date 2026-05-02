@@ -12,10 +12,10 @@ import time
 from pathlib import Path
 import requests
 
-BASE_URL = "https://precoscombustiveis.dgeg.gov.pt/api/PrecoComb"
+# Correct endpoint for price searches (different from ListarDadosPostos which is registry data)
+PRICE_URL = "https://precoscombustiveis.dgeg.gov.pt/api/PrecoCombustivel/GetListPostos"
 OUTPUT_PATH = Path("Postos.csv")
 
-# Headers that mimic a real browser request — required by the DGEG server
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -23,9 +23,8 @@ HEADERS = {
     "Origin": "https://precoscombustiveis.dgeg.gov.pt",
 }
 
-# Hardcoded fuel IDs from DGEG — used if the dynamic fetch fails.
-# These are stable and rarely change.
-FALLBACK_FUEL_IDS = [
+# Fuel type IDs — one request per fuel type
+FUEL_IDS = [
     (3,  "Gasolina simples 95"),
     (4,  "Gasolina especial 95"),
     (5,  "Gasolina especial 98"),
@@ -42,29 +41,8 @@ FALLBACK_FUEL_IDS = [
 ]
 
 
-def get_fuel_ids() -> list[tuple[int, str]]:
-    """Try to fetch fuel types dynamically; fall back to hardcoded list."""
-    url = f"{BASE_URL}/GetCombustiveis?idioma=0"
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
-        print(f"  HTTP {resp.status_code} | Content-Type: {resp.headers.get('Content-Type', '?')}")
-        data = resp.json()
-        fuels = data if isinstance(data, list) else data.get("resultado") or data.get("items") or []
-        result = [(item["Id"], item.get("Nome", "")) for item in fuels if "Id" in item]
-        if result:
-            print(f"  Combustíveis obtidos da API: {len(result)}")
-            return result
-        print("  API devolveu lista vazia — a usar lista predefinida.")
-    except Exception as e:
-        print(f"  Não foi possível obter combustíveis da API ({e}) — a usar lista predefinida.")
-
-    print(f"  A usar {len(FALLBACK_FUEL_IDS)} combustíveis predefinidos.")
-    return FALLBACK_FUEL_IDS
-
-
-def fetch_postos_for_fuel(fuel_id: int) -> list[dict]:
-    url = f"{BASE_URL}/ListarDadosPostos"
+def fetch_postos_for_fuel(fuel_id: int, fuel_name: str) -> list[dict]:
+    """Fetch all stations with prices for a given fuel type."""
     params = {
         "idioma": 0,
         "tipoPosto": "",
@@ -75,17 +53,26 @@ def fetch_postos_for_fuel(fuel_id: int) -> list[dict]:
         "qtdPorPagina": 9999,
         "pagina": 1,
     }
-    resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+    resp = requests.get(PRICE_URL, params=params, headers=HEADERS, timeout=30)
     resp.raise_for_status()
+
+    # DEBUG: show raw response on first fuel only
+    if fuel_id == FUEL_IDS[0][0]:
+        print(f"\n  DEBUG raw keys: {list(resp.json().keys())}")
+        result_sample = (resp.json().get("resultado") or resp.json().get("Resultado") or [])
+        if result_sample:
+            print(f"  DEBUG first entry: {result_sample[0]}")
+
     data = resp.json()
-    result = data.get("resultado") or data.get("Resultado") or []
-    
-    # DEBUG: print first entry to see field names
-    if result:
-        print(f"\n  DEBUG first entry: {result[0]}")
-    
-    print(f"  → {len(result)} postos")
-    return result
+    entries = data.get("resultado") or data.get("Resultado") or data.get("items") or []
+
+    # Inject fuel name since the entry may not include it
+    for e in entries:
+        if not e.get("Combustivel") and not e.get("fuelType"):
+            e["_fuelName"] = fuel_name
+
+    print(f"  → {len(entries)} postos")
+    return entries
 
 
 def format_price(raw) -> str:
@@ -108,13 +95,13 @@ def row_from_entry(entry: dict) -> dict:
     """Map an API JSON entry to the CSV row dict."""
     return {
         "Nome":            entry.get("Nome") or entry.get("name") or "",
-        "TipoPosto":       entry.get("TipoPosto") or entry.get("stationType") or "",
-        "Municipio":       entry.get("Municipio") or entry.get("municipality") or "",
-        "Preco":           format_price(entry.get("Preco") or entry.get("price")),
-        "Marca":           entry.get("Marca") or entry.get("brand") or "",
-        "Combustivel":     entry.get("Combustivel") or entry.get("fuelType") or "",
-        "DataAtualizacao": format_date(entry.get("DataAtualizacao") or entry.get("updateDate")),
-        "Distrito":        entry.get("Distrito") or entry.get("district") or "",
+        "TipoPosto":       entry.get("TipoPosto") or entry.get("stationType") or entry.get("TipoPostoDescritivo") or "",
+        "Municipio":       entry.get("Municipio") or entry.get("municipality") or entry.get("MunicipioDescritivo") or "",
+        "Preco":           format_price(entry.get("Preco") or entry.get("preco") or entry.get("price") or entry.get("Preco1") or entry.get("PrecoFormatado")),
+        "Marca":           entry.get("Marca") or entry.get("brand") or entry.get("MarcaDescritivo") or "",
+        "Combustivel":     entry.get("Combustivel") or entry.get("fuelType") or entry.get("CombustivelDescritivo") or entry.get("_fuelName") or "",
+        "DataAtualizacao": format_date(entry.get("DataAtualizacao") or entry.get("DataAtualizacaoPreco") or entry.get("updateDate") or entry.get("DataRegisto")),
+        "Distrito":        entry.get("Distrito") or entry.get("district") or entry.get("DistritoDescritivo") or "",
         "Morada":          entry.get("Morada") or entry.get("address") or "",
         "Localidade":      entry.get("Localidade") or entry.get("locality") or "",
         "CodPostal":       entry.get("CodPostal") or entry.get("zipCode") or "",
@@ -124,19 +111,18 @@ def row_from_entry(entry: dict) -> dict:
 
 
 def main():
-    print("A obter lista de combustíveis...")
-    fuels = get_fuel_ids()
-
-    print("\nA carregar postos por combustível...")
+    print(f"A usar endpoint: {PRICE_URL}\n")
+    print("A carregar postos por combustível...")
     all_rows = []
-    for fuel_id, fuel_name in fuels:
+
+    for fuel_id, fuel_name in FUEL_IDS:
         print(f"  {fuel_name} (id={fuel_id})", end=" ", flush=True)
         try:
-            entries = fetch_postos_for_fuel(fuel_id)
+            entries = fetch_postos_for_fuel(fuel_id, fuel_name)
             for entry in entries:
                 all_rows.append(row_from_entry(entry))
         except Exception as e:
-            print(f"  ERRO ao carregar fuel {fuel_id}: {e}")
+            print(f"  ERRO: {e}")
         time.sleep(0.5)
 
     if not all_rows:
@@ -154,7 +140,11 @@ def main():
 
     print(f"\nTotal: {len(unique_rows)} registos únicos")
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Quick sanity check — warn if prices look wrong
+    prices_ok = sum(1 for r in unique_rows if r["Preco"] and r["Preco"] != "0,000 €")
+    print(f"Registos com preço válido: {prices_ok}/{len(unique_rows)}")
+    if prices_ok == 0:
+        print("AVISO: Todos os preços estão a zero — verificar endpoint ou campos da API.")
 
     fieldnames = [
         "Nome", "TipoPosto", "Municipio", "Preco", "Marca",

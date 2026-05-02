@@ -1,0 +1,34 @@
+name: Atualizar Postos.csv
+
+on:
+  schedule:
+    # Corre todas as segundas-feiras às 07:00 UTC (08:00 Lisboa hora de inverno)
+    - cron: '0 7 * * 1'
+  workflow_dispatch: # Permite correr manualmente a qualquer momento
+
+jobs:
+  update-postos:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Descarregar dados da DGEG e gerar CSV
+        run: python scripts/fetch_postos.py
+
+      - name: Commit e push se houver alterações
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add public/data/Postos.csv
+          git diff --staged --quiet || git commit -m "Atualização automática Postos.csv - $(date +'%Y-%m-%d')"
+          git push

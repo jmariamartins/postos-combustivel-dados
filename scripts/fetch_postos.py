@@ -64,7 +64,6 @@ def get_fuel_ids() -> list[tuple[int, str]]:
 
 
 def fetch_postos_for_fuel(fuel_id: int) -> list[dict]:
-    """Fetch all stations for a given fuel type ID."""
     url = f"{BASE_URL}/ListarDadosPostos"
     params = {
         "idioma": 0,
@@ -80,6 +79,11 @@ def fetch_postos_for_fuel(fuel_id: int) -> list[dict]:
     resp.raise_for_status()
     data = resp.json()
     result = data.get("resultado") or data.get("Resultado") or []
+    
+    # DEBUG: print first entry to see field names
+    if result:
+        print(f"\n  DEBUG first entry: {result[0]}")
+    
     print(f"  → {len(result)} postos")
     return result
 

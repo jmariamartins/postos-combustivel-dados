@@ -6,6 +6,9 @@ on:
     - cron: '0 7 * * 1'
   workflow_dispatch: # Permite correr manualmente a qualquer momento
 
+permissions:
+  contents: write  # Necessário para fazer commit e push
+
 jobs:
   update-postos:
     runs-on: ubuntu-latest
@@ -29,6 +32,6 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add public/data/Postos.csv
+          git add Postos.csv
           git diff --staged --quiet || git commit -m "Atualização automática Postos.csv - $(date +'%Y-%m-%d')"
           git push
